@@ -7,7 +7,8 @@
 # Author: Abdulrahman S. Al-Batati <asmalbatati@hotmail.com>
 #
 
-set -e
+# REMOVED: set -e  # This was causing immediate exit on any error
+# Instead, we'll handle errors gracefully
 
 # Colors for output
 RED='\033[0;31m'
@@ -42,7 +43,7 @@ print_header() {
 
 # Function to detect OS with enhanced WSL detection
 detect_os() {
-    print_status "Detecting operating system..."
+    print_status "Detecting operating system..." >&2
     
     # Multiple WSL detection methods
     if [[ -f /proc/version ]] && grep -qi microsoft /proc/version; then
@@ -62,24 +63,24 @@ detect_os() {
 
 # Function to detect GPU with enhanced CUDA detection
 detect_gpu() {
-    print_status "Detecting GPU capabilities..."
+    print_status "Detecting GPU capabilities..." >&2
     
     # Check for NVIDIA GPU
     if command -v nvidia-smi &> /dev/null; then
         if nvidia-smi &> /dev/null; then
             local gpu_count=$(nvidia-smi --query-gpu=count --format=csv,noheader,nounits 2>/dev/null || echo "0")
             local gpu_name=$(nvidia-smi --query-gpu=name --format=csv,noheader,nounits 2>/dev/null | head -1 || echo "Unknown")
-            print_success "NVIDIA GPU detected: $gpu_name (Count: $gpu_count)"
+            print_success "NVIDIA GPU detected: $gpu_name (Count: $gpu_count)" >&2
             echo "nvidia"
         else
-            print_warning "nvidia-smi found but not working"
+            print_warning "nvidia-smi found but not working" >&2
             echo "none"
         fi
     elif [[ -d /dev/dri ]] && [[ -n "$(ls -A /dev/dri 2>/dev/null)" ]]; then
-        print_status "DRI devices found - GPU acceleration may be available"
+        print_status "DRI devices found - GPU acceleration may be available" >&2
         echo "generic"
     else
-        print_warning "No GPU detected"
+        print_warning "No GPU detected" >&2
         echo "none"
     fi
 }
@@ -90,7 +91,9 @@ check_docker() {
     
     if ! command -v docker &> /dev/null; then
         print_error "Docker is not installed. Please install Docker first."
-        exit 1
+        print_warning "Script will exit now. Please install Docker and try again."
+        read -p "Press Enter to continue..."
+        return 1
     fi
     
     local docker_version=$(docker version --format '{{.Client.Version}}' 2>/dev/null || echo "unknown")
@@ -99,7 +102,9 @@ check_docker() {
     # Check if Docker daemon is running
     if ! docker info &> /dev/null; then
         print_error "Docker daemon is not running. Please start Docker first."
-        exit 1
+        print_warning "Script will exit now. Please start Docker and try again."
+        read -p "Press Enter to continue..."
+        return 1
     fi
     
     # Check Docker version for GPU support
@@ -292,11 +297,13 @@ setup_workspace() {
     print_status "Setting up workspace directory: $workspace_dir"
     
     if [[ ! -d "$workspace_dir" ]]; then
-        if mkdir -p "$workspace_dir"; then
+        if mkdir -p "$workspace_dir" 2>/dev/null; then
             print_success "Created workspace directory: $workspace_dir"
         else
             print_error "Failed to create workspace directory: $workspace_dir"
-            exit 1
+            print_warning "This is likely a permissions issue or invalid path"
+            print_warning "Script will continue, but container may not start properly"
+            return 1
         fi
     else
         print_success "Workspace directory exists: $workspace_dir"
@@ -307,10 +314,13 @@ setup_workspace() {
         print_success "Workspace directory is writable"
     else
         print_warning "Workspace directory is not writable - attempting to fix permissions"
-        chmod 755 "$workspace_dir" 2>/dev/null || {
+        if chmod 755 "$workspace_dir" 2>/dev/null; then
+            print_success "Fixed workspace directory permissions"
+        else
             print_error "Could not set permissions for workspace directory"
-            exit 1
-        }
+            print_warning "Script will continue, but you may encounter permission issues"
+            return 1
+        fi
     fi
 }
 
@@ -370,7 +380,11 @@ main() {
     print_header "PX4 ROS2 Jazzy Docker Environment"
     
     # Check Docker installation
-    check_docker
+    if ! check_docker; then
+        print_error "Docker check failed. Cannot continue."
+        read -p "Press Enter to exit..."
+        return 1
+    fi
     
     # Detect environment
     OS=$(detect_os)
@@ -382,7 +396,7 @@ main() {
     # Configuration
     DOCKER_REPO="px4-dev-simulation-ubuntu24"
     CONTAINER_NAME="px4_ros2_jazzy"
-    WORKSPACE_DIR=~/px4_ros2_jazzy_shared_volume
+    WORKSPACE_DIR=~/${CONTAINER_NAME}_shared_volume
     
     # Allow custom container name
     if [[ -n "$1" ]]; then
@@ -394,7 +408,9 @@ main() {
     print_status "Workspace directory: $WORKSPACE_DIR"
     
     # Setup workspace directory
-    setup_workspace "$WORKSPACE_DIR"
+    if ! setup_workspace "$WORKSPACE_DIR"; then
+        print_warning "Workspace setup had issues, but continuing..."
+    fi
     
     # Initialize Docker options
     DOCKER_OPTS=""
@@ -462,28 +478,62 @@ main() {
     case $CONTAINER_STATUS in
         "running")
             print_success "Container is already running. Attaching to it..."
-            docker exec --user user -it "$CONTAINER_NAME" env TERM=xterm-256color bash -c "$CMD"
+            docker exec --user user -it "$CONTAINER_NAME" env TERM=xterm-256color bash -c "$CMD" || {
+                print_error "Failed to attach to running container"
+                read -p "Press Enter to continue..."
+                return 1
+            }
             ;;
         "stopped")
             print_status "Restarting existing container..."
-            docker start "$CONTAINER_NAME"
-            docker exec --user user -it "$CONTAINER_NAME" env TERM=xterm-256color bash -c "$CMD"
+            if docker start "$CONTAINER_NAME"; then
+                print_success "Container started successfully"
+                docker exec --user user -it "$CONTAINER_NAME" env TERM=xterm-256color bash -c "$CMD" || {
+                    print_error "Failed to attach to restarted container"
+                    read -p "Press Enter to continue..."
+                    return 1
+                }
+            else
+                print_error "Failed to start existing container"
+                read -p "Press Enter to continue..."
+                return 1
+            fi
             ;;
         "not_exists")
             print_status "Creating and running new container..."
             print_status "Docker command: docker run -it --name $CONTAINER_NAME $DOCKER_OPTS $DOCKER_REPO"
             
+            # Check if image exists
+            if ! docker image inspect "$DOCKER_REPO" &>/dev/null; then
+                print_error "Docker image '$DOCKER_REPO' not found"
+                print_warning "Please build the image first or check the image name"
+                read -p "Press Enter to continue..."
+                return 1
+            fi
+            
             # shellcheck disable=SC2086
-            docker run -it \
+            if docker run -it \
                 --name "$CONTAINER_NAME" \
                 $DOCKER_OPTS \
                 "$DOCKER_REPO" \
-                bash -c "$CMD"
+                bash -c "$CMD"; then
+                print_success "Container completed successfully"
+            else
+                print_error "Container failed to start or exited unexpectedly"
+                print_warning "Check the error messages above for details"
+                read -p "Press Enter to continue..."
+                return 1
+            fi
             ;;
     esac
     
     print_success "Docker environment session completed"
 }
 
-# Run main function with all arguments
-main "$@" 
+# Run main function with all arguments and handle any remaining errors
+if ! main "$@"; then
+    print_error "Script completed with errors"
+    print_warning "Check the error messages above for details"
+    read -p "Press Enter to exit..."
+    exit 1
+fi 
