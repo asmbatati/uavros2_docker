@@ -499,7 +499,7 @@ main() {
         fi && \
         echo 'PX4 ROS2 Development Environment Ready!' && \
         echo 'Workspace: /home/user/shared_volume' && \
-        echo 'To run install script: cd /home/user/shared_volume/ros2_ws/src/uav_gz_sim && ./install.sh' && \
+        echo 'To run install script: cd /home/user/shared_volume/ros2_ws/src/uavros2 && ./install.sh' && \
         ${USER_CMD}"
 
     # Add environment variables if available

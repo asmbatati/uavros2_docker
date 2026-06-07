@@ -118,7 +118,7 @@ setup_environment() {
     local workspace_dir
     
     # Get the absolute path to the shared volume directory
-    # From px4_ros2_jazzy_docker directory: go up to ros2_ws/src/uav_gz_sim/px4_ros2_jazzy_docker
+    # From px4_ros2_jazzy_docker directory: go up to ros2_ws/src/uavros2/px4_ros2_jazzy_docker
     # Then go up 4 levels to get to px4_ros2_jazzy_shared_volume
     local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     workspace_dir="$(cd "$script_dir" && cd ../../../.. && pwd)"
@@ -404,7 +404,7 @@ main() {
                 echo
                 print_status "To run the install script:"
                 echo "  $0 shell"
-                echo "  cd /home/user/shared_volume/ros2_ws/src/uav_gz_sim && ./install.sh"
+                echo "  cd /home/user/shared_volume/ros2_ws/src/uavros2 && ./install.sh"
             else
                 print_error "Failed to start services. Check the logs with: $0 logs"
                 exit 1

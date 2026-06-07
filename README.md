@@ -96,7 +96,7 @@ sudo systemctl restart docker
 ./docker-compose-run.sh shell
 
 # Run install script
-cd /home/user/shared_volume/ros2_ws/src/uav_gz_sim && ./install.sh
+cd /home/user/shared_volume/ros2_ws/src/uavros2 && ./install.sh
 ```
 
 ### GPU-Accelerated Development
@@ -241,7 +241,7 @@ graph TB
 ./docker-compose-run.sh shell
 
 # 3. Run installation
-cd /home/user/shared_volume/ros2_ws/src/uav_gz_sim
+cd /home/user/shared_volume/ros2_ws/src/uavros2
 ./install.sh
 
 # 4. Build workspace
