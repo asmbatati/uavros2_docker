@@ -341,13 +341,16 @@ check_container_status() {
 
 # Function to show usage
 show_usage() {
-    echo "Usage: $0 [OPTIONS] [CONTAINER_NAME]"
+    echo "Usage: $0 [OPTIONS] [CONTAINER_NAME] [USER_CMD]"
     echo ""
     echo "Description:"
     echo "  Launch PX4 ROS2 development environment with automatic OS and GPU detection"
     echo ""
     echo "Arguments:"
     echo "  CONTAINER_NAME          Custom container name (default: px4_ros2_jazzy)"
+    echo "  USER_CMD                Optional command to run after env setup (default: /bin/bash)"
+    echo "                          The standard DEV_DIR / PX4_DIR / ROS2_WS exports and"
+    echo "                          .bashrc / install/setup.bash sourcing always run first."
     echo ""
     echo "Options:"
     echo "  --help, -h              Show this help message"
@@ -355,11 +358,16 @@ show_usage() {
     echo "Environment Variables:"
     echo "  GIT_USER                Git username for authenticated repository access"
     echo "  GIT_TOKEN               Git token for authenticated repository access"
+    echo "  SUDO_PASSWORD           Password for non-interactive 'sudo' inside the"
+    echo "                          container (default: user)"
+    echo "  SSH_AUTH_SOCK           Auto-detected: forwards the host SSH agent so the"
+    echo "                          container can clone private repos as the host user"
     echo ""
     echo "Examples:"
-    echo "  $0                      # Start with default container name"
-    echo "  $0 my_px4_dev          # Start with custom container name"
-    echo "  GIT_USER=user GIT_TOKEN=token $0    # Start with git credentials"
+    echo "  $0                                # default container, drops into bash"
+    echo "  $0 my_px4_dev                     # custom container name"
+    echo "  $0 my_px4_dev 'ros2 launch ...'   # run a one-shot inside the container"
+    echo "  GIT_USER=u GIT_TOKEN=t $0         # forward git credentials"
     echo ""
     echo "Features:"
     echo "  - Automatic OS detection (Ubuntu/WSL2)"
@@ -367,6 +375,9 @@ show_usage() {
     echo "  - Cross-platform display forwarding"
     echo "  - Persistent workspace volume"
     echo "  - Container restart/attach functionality"
+    echo "  - SSH agent forwarding"
+    echo "  - Non-interactive sudo inside the container"
+    echo "  - Optional one-shot command via second positional arg"
 }
 
 # Main script
@@ -403,9 +414,15 @@ main() {
         CONTAINER_NAME=$1
         WORKSPACE_DIR=~/${CONTAINER_NAME}_shared_volume
     fi
-    
+
+    # Optional second positional arg: a one-shot command to run inside the
+    # container after the standard env setup. Defaults to /bin/bash, which
+    # gives the interactive dev-shell behavior the old script always had.
+    USER_CMD="${2:-/bin/bash}"
+
     print_status "Container name: $CONTAINER_NAME"
     print_status "Workspace directory: $WORKSPACE_DIR"
+    print_status "Inside-container command: $USER_CMD"
     
     # Setup workspace directory
     if ! setup_workspace "$WORKSPACE_DIR"; then
@@ -451,8 +468,27 @@ main() {
     DOCKER_OPTS="$DOCKER_OPTS -p 14540:14540/udp"  # MAVROS FCU
     DOCKER_OPTS="$DOCKER_OPTS -p 8888:8888/udp"    # XRCE-DDS
     DOCKER_OPTS="$DOCKER_OPTS -p 5760:5760/tcp"    # QGroundControl
-    
-    # Setup command
+
+    # SSH agent forwarding (so private repo clones inside the container reuse
+    # the host's loaded keys). Backported from gps_denied_navigation_docker.
+    if [[ -n "$SSH_AUTH_SOCK" ]]; then
+        DOCKER_OPTS="$DOCKER_OPTS -v $SSH_AUTH_SOCK:/tmp/ssh_auth_sock"
+        DOCKER_OPTS="$DOCKER_OPTS -e SSH_AUTH_SOCK=/tmp/ssh_auth_sock"
+        print_success "SSH agent forwarding enabled (sock: $SSH_AUTH_SOCK)"
+    else
+        print_status "No SSH_AUTH_SOCK in host env - SSH forwarding disabled"
+    fi
+
+    # SUDO_PASSWORD: non-interactive sudo inside the container. The default
+    # 'user' matches the gps_denied_navigation_docker images; override with
+    # SUDO_PASSWORD=... when invoking this script if your image expects
+    # something else.
+    SUDO_PASSWORD="${SUDO_PASSWORD:-user}"
+    DOCKER_OPTS="$DOCKER_OPTS -e SUDO_PASSWORD=$SUDO_PASSWORD"
+
+    # Setup command. The trailing process is ${USER_CMD} so passing a second
+    # positional arg lets you run a one-shot inside the container
+    # (e.g. `./docker_run.sh mycontainer 'ros2 topic list'`). Default is bash.
     CMD="export DEV_DIR=/home/user/shared_volume && \
         export PX4_DIR=\$DEV_DIR/PX4-Autopilot && \
         export ROS2_WS=\$DEV_DIR/ros2_ws && \
@@ -464,8 +500,8 @@ main() {
         echo 'PX4 ROS2 Development Environment Ready!' && \
         echo 'Workspace: /home/user/shared_volume' && \
         echo 'To run install script: cd /home/user/shared_volume/ros2_ws/src/uav_gz_sim && ./install.sh' && \
-        /bin/bash"
-    
+        ${USER_CMD}"
+
     # Add environment variables if available
     if [[ -n "$GIT_TOKEN" ]] && [[ -n "$GIT_USER" ]]; then
         DOCKER_OPTS="$DOCKER_OPTS -e GIT_USER=$GIT_USER -e GIT_TOKEN=$GIT_TOKEN"
