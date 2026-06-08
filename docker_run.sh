@@ -162,6 +162,14 @@ setup_gpu_support() {
             DOCKER_OPTS="$DOCKER_OPTS -e NVIDIA_VISIBLE_DEVICES=all"
             DOCKER_OPTS="$DOCKER_OPTS -e NVIDIA_DRIVER_CAPABILITIES=all"
             DOCKER_OPTS="$DOCKER_OPTS -e __GLX_VENDOR_LIBRARY_NAME=nvidia"
+
+
+            renderer=$(glxinfo -B 2>/dev/null | awk -F': ' '/OpenGL renderer string/ {print $2}')
+
+            if echo "$renderer" | grep -qiE 'intel|amd|radeon'; then
+                print_success "Hybrid graphics detected"
+                DOCKER_OPTS="$DOCKER_OPTS -e __NV_PRIME_RENDER_OFFLOAD=1"
+            fi
         fi
         
         print_success "NVIDIA GPU support configured"
