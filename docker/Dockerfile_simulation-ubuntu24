@@ -121,14 +121,14 @@ RUN cd /home/user/ros2_ws/src/ && git clone -b jazzy https://github.com/gazebosi
 
 # Clone MAVROS for ROS 2 Jazzy
 RUN cd /home/user/ros2_ws/src/ && git clone -b ros2 https://github.com/mavlink/mavros.git
-RUN cd /home/user/ros2_ws/src/ && git clone -b ros2 https://github.com/mavlink/mavlink.git
+RUN cd /home/user/ros2_ws/src/ && git clone --recursive https://github.com/mavlink/mavlink.git
 
 USER root
 RUN apt-get update && apt-get install -y \
     gz-harmonic \
     ros-jazzy-geographic-msgs \
     ros-jazzy-angles \
-    libgeographic-dev \
+    libgeographiclib-dev \
     geographiclib-tools \
     ros-jazzy-tf2-eigen \
     ros-jazzy-yaml-cpp-vendor
@@ -139,7 +139,7 @@ RUN rosdep install -r --from-paths src -i -y --rosdistro jazzy
 
 # Install GeographicLib datasets for MAVROS
 USER root
-RUN /opt/ros/jazzy/lib/mavros/install_geographiclib_datasets.sh
+RUN /home/user/ros2_ws/src/mavros/mavros/scripts/install_geographiclib_datasets.sh
 
 WORKDIR /home/user/ros2_ws
 RUN bash -c "source /opt/ros/jazzy/setup.bash && cd /home/user/ros2_ws && export MAKEFLAGS='-j 4' &&  colcon build"
