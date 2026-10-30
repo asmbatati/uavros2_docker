@@ -1,0 +1,76 @@
+#
+# Ready-to-run uavros2: the Ubuntu 24 / Jazzy dev image plus PX4-Autopilot
+# (SITL built) and a built uavros2 workspace under /home/user/drone_arm_ws,
+# the layout install.sh creates. Models, worlds and airframes are synced
+# into PX4 before it is built.
+#
+#   make px4-dev-simulation-ubuntu24   # base image first
+#   make uavros2                       # this image (uavros2:jazzy)
+#
+# Run a headless aerial-arm experiment (no display, isolated network):
+#   docker run --rm --name uavsim-demo -e LOCAL_USER_ID=$(id -u) \
+#     -v $PWD/results:/home/user/results uavros2:jazzy \
+#     bash -c 'source ~/uavros2_env.sh && aerial_arm_experiment.sh openmanip_x 0 ~/results'
+#
+ARG BASE_IMAGE=px4-dev-simulation-ubuntu24
+FROM ${BASE_IMAGE}
+
+ARG PX4_REF=v1.15.4
+ARG UAVROS2_REF=main
+ARG UAVROS2_MSGS_REF=main
+
+# MAVROS from the Jazzy binaries (upstream mavlink/mavros, the same source
+# install.sh clones); GeographicLib datasets are already in the base image.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ros-jazzy-mavros ros-jazzy-mavros-extras ros-jazzy-mavros-msgs \
+    && rm -rf /var/lib/apt/lists/*
+
+USER user
+ENV DEV_DIR=/home/user/drone_arm_ws
+WORKDIR /home/user
+RUN git lfs install && mkdir -p ${DEV_DIR}/ros2_ws/src
+
+# PX4 at the release uavros2 is verified on. Shallow clone; PX4's version
+# header script needs a nuttx-* tag in the NuttX submodule (even for SITL),
+# which a shallow submodule lacks, so fetch the one v1.15.4 reports.
+RUN git clone -b ${PX4_REF} --depth 1 --recurse-submodules --shallow-submodules \
+      https://github.com/PX4/PX4-Autopilot.git ${DEV_DIR}/PX4-Autopilot && \
+    git -C ${DEV_DIR}/PX4-Autopilot/platforms/nuttx/NuttX/nuttx \
+      fetch --depth 1 origin tag nuttx-11.0.0
+
+# uavros2 (models are git-lfs) and its service definitions. The ADD makes
+# Docker re-run the clone whenever the branch moves (it caches RUN lines by
+# their text, so a plain `git clone` would keep serving the first checkout).
+ADD https://api.github.com/repos/asmbatati/uavros2/git/refs/heads/${UAVROS2_REF} /tmp/uavros2_ref.json
+RUN cd ${DEV_DIR}/ros2_ws/src && \
+    git clone -b ${UAVROS2_REF} https://github.com/asmbatati/uavros2.git && \
+    git clone -b ${UAVROS2_MSGS_REF} https://github.com/asmbatati/uavros2_msgs.git
+
+# Copy uavros2's models / worlds / airframes into PX4, then build SITL once.
+RUN bash ${DEV_DIR}/ros2_ws/src/uavros2/scripts/sync_px4_assets.sh ${DEV_DIR}/PX4-Autopilot && \
+    cd ${DEV_DIR}/PX4-Autopilot && make px4_sitl
+
+USER root
+RUN cd ${DEV_DIR}/ros2_ws && \
+    apt-get update && \
+    rosdep install --from-paths src --ignore-src -r -y --rosdistro jazzy && \
+    rm -rf /var/lib/apt/lists/*
+
+USER user
+RUN cd ${DEV_DIR}/ros2_ws && \
+    bash -c "source /opt/ros/jazzy/setup.bash && colcon build"
+
+# Environment for non-interactive shells (the entrypoint does not source the
+# workspace) and for interactive ones.
+RUN printf '%s\n' \
+      'source /opt/ros/jazzy/setup.bash' \
+      "source ${DEV_DIR}/ros2_ws/install/setup.bash" \
+      "export DEV_DIR=${DEV_DIR}" \
+      'export RMW_IMPLEMENTATION=${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}' \
+      "export PATH=${DEV_DIR}/ros2_ws/src/uavros2/scripts:\$PATH" \
+      > /home/user/uavros2_env.sh && \
+    echo 'source /home/user/uavros2_env.sh' >> /home/user/.bashrc
+
+USER root
+WORKDIR /home/user
+CMD ["/bin/bash"]

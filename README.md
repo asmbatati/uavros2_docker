@@ -2,6 +2,34 @@
 
 A comprehensive, cross-platform Docker environment for PX4 ROS2 development with Gazebo Harmonic simulation. This setup automatically detects your system configuration and provides optimal performance across **Ubuntu**, **WSL2**, and different **CUDA** scenarios.
 
+## uavros2 images (Ubuntu 24.04 / ROS 2 Jazzy), verified Oct 2026
+
+```bash
+cd docker
+make px4-dev-simulation-ubuntu24   # dev environment, ~10 GB: Jazzy desktop, Gazebo Harmonic,
+                                   # PX4 SITL toolchain, ros_gz, ros2_control, MoveIt, Zenoh,
+                                   # XRCE-DDS Agent v2.4.3, GeographicLib datasets
+make uavros2                       # uavros2:jazzy = the above + PX4 v1.15.4 SITL and the
+                                   # uavros2 workspace built (MAVROS from apt)
+```
+
+`docker_run.sh` starts an interactive container from `px4-dev-simulation-ubuntu24`
+(X11, GPU, `~/<name>_shared_volume` mounted); clone uavros2 there and run its
+`install.sh`. `uavros2:jazzy` needs no display; this runs the aerial-arm flight
+experiment headless and writes the results to `./results`:
+
+```bash
+docker run --rm --name uavsim-demo --gpus all -e LOCAL_USER_ID=$(id -u) \
+  -v $PWD/results:/home/user/results uavros2:jazzy \
+  bash -c 'source ~/uavros2_env.sh && aerial_arm_experiment.sh openmanip_x 0 ~/results'
+```
+
+Without `--network host` the container's ROS and Gazebo traffic stays inside
+it; on a shared machine also pass your own `GZ_PARTITION` / `ROS_DOMAIN_ID`
+when you do use host networking. The Ubuntu 22 / Humble, CUDA and WSL
+Dockerfiles below were ported from gps_denied_navigation_docker and have not
+been rebuilt here.
+
 ## 🚀 Features
 
 - **Cross-Platform Compatibility**: Seamless operation on Ubuntu, WSL2, and other Linux distributions
