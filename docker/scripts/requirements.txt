@@ -9,7 +9,7 @@ jsonschema
 kconfiglib
 lxml
 matplotlib>=3.3
-numpy>=1.13
+numpy>=1.13,<2  # ROS 2 Jazzy binaries (cv_bridge, ...) are built against numpy 1.x
 nunavut>=1.1.0
 packaging
 pandas>=0.21

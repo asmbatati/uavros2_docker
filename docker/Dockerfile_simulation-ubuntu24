@@ -1,21 +1,28 @@
 #
-# PX4 Gazebo Harmonic development environment in Ubuntu 24.04
+# PX4 + ROS 2 Jazzy + Gazebo Harmonic development environment (Ubuntu 24.04).
+#
+# Everything uavros2 needs at the system level: PX4 SITL toolchain, Gazebo
+# Harmonic, ros_gz, ros2_control + gz_ros2_control, MoveIt, Zenoh RMW, the
+# Micro XRCE-DDS Agent and GeographicLib datasets. The ROS workspace itself
+# (uavros2, the mavros fork, PX4-Autopilot) is NOT baked in: clone it into
+# the shared volume and run uavros2's install.sh, or use Dockerfile_uavros2
+# for a ready-to-run image.
+#
+#   make px4-dev-simulation-ubuntu24
 #
 
 FROM osrf/ros:jazzy-desktop
 LABEL maintainer="Abdulrahman S. Al-Batati <asmalbatati@hotmail.com>"
 
+ENV DEBIAN_FRONTEND=noninteractive
+
 #
-# Setup XRCE-DDS Agent & Client
+# Micro XRCE-DDS Agent (PX4 uXRCE-DDS bridge), pinned to the version PX4 documents
 #
-RUN git clone https://github.com/eProsima/Micro-XRCE-DDS-Agent.git && \
-    cd Micro-XRCE-DDS-Agent && \
-    mkdir build && \
-    cd build && \
-    cmake .. && \
-    make && \
-    sudo make install && \
-    sudo ldconfig /usr/local/lib/
+RUN git clone -b v2.4.3 --depth 1 https://github.com/eProsima/Micro-XRCE-DDS-Agent.git /tmp/xrce && \
+    cd /tmp/xrce && mkdir build && cd build && \
+    cmake .. && make -j"$(nproc)" && make install && ldconfig /usr/local/lib/ && \
+    rm -rf /tmp/xrce
 
 RUN apt-get update && apt-get -y --quiet --no-install-recommends install \
 		bzip2 \
@@ -53,7 +60,7 @@ RUN apt-get update && apt-get -y --quiet --no-install-recommends install \
 		wget \
 		xsltproc \
 		zip \
-        gedit \
+		gedit \
 		bash-completion \
 		command-not-found \
 	&& apt-get -y autoremove \
@@ -64,9 +71,9 @@ COPY scripts/px4_dev.sh /tmp/px4_dev.sh
 COPY scripts/requirements.txt /tmp/requirements.txt
 
 #
-# Install PX4 dev requirements
+# PX4 SITL requirements and Gazebo Harmonic (no NuttX cross toolchain: SITL only)
 #
-RUN chmod +x /tmp/px4_dev.sh && /tmp/px4_dev.sh
+RUN chmod +x /tmp/px4_dev.sh && /tmp/px4_dev.sh --no-nuttx && rm -rf /var/lib/apt/lists/*
 
 # create user with id 1000 (or use existing user if UID 1000 exists)
 RUN if id 1000 >/dev/null 2>&1; then \
@@ -89,8 +96,8 @@ ENV QT_X11_NO_MITSHM=1
 ENV JAVA_TOOL_OPTIONS=-Dfile.encoding=UTF8
 
 # Install JSBSim
-RUN wget https://github.com/JSBSim-Team/jsbsim/releases/download/v1.2.3/JSBSim-devel_1.2.3-1561.noble.amd64.deb
-RUN dpkg -i JSBSim-devel_1.2.3-1561.noble.amd64.deb
+RUN wget -q https://github.com/JSBSim-Team/jsbsim/releases/download/v1.2.3/JSBSim-devel_1.2.3-1561.noble.amd64.deb && \
+    dpkg -i JSBSim-devel_1.2.3-1561.noble.amd64.deb && rm JSBSim-devel_1.2.3-1561.noble.amd64.deb
 
 #
 # Install VS Code for easy code development
@@ -99,57 +106,47 @@ RUN wget -qO- https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor 
 	install -D -o root -g root -m 644 packages.microsoft.gpg /etc/apt/keyrings/packages.microsoft.gpg && \
 	sh -c 'echo "deb [arch=amd64,arm64,armhf signed-by=/etc/apt/keyrings/packages.microsoft.gpg] https://packages.microsoft.com/repos/code stable main" > /etc/apt/sources.list.d/vscode.list' && \
 	rm -f packages.microsoft.gpg
-RUN apt install -y apt-transport-https && \
-	apt update && \
-	apt install -y code
-
-RUN echo "source /opt/ros/jazzy/setup.bash" >> /home/user/.bashrc
+RUN apt-get update && apt-get install -y apt-transport-https code && rm -rf /var/lib/apt/lists/*
 
 #
-# Remove binary pkg ros-jazzy-ros-gz-bridge. Not compatible with ros 2 jazzy. Need to build from source
+# ROS 2 side of the simulation: ros_gz (binary, built for Harmonic on Jazzy),
+# ros2_control + gz_ros2_control for the arms, MoveIt, Zenoh RMW, and the
+# libraries the mavros fork builds against. uavros2's install.sh runs rosdep
+# for anything else.
 #
-RUN apt remove -y ros-jazzy-ros-gz-bridge
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ros-jazzy-ros-gz \
+    ros-jazzy-gz-ros2-control \
+    ros-jazzy-ros2-control \
+    ros-jazzy-ros2-controllers \
+    ros-jazzy-moveit \
+    ros-jazzy-xacro \
+    ros-jazzy-rmw-zenoh-cpp \
+    ros-jazzy-geographic-msgs \
+    ros-jazzy-angles \
+    ros-jazzy-tf2-eigen \
+    ros-jazzy-yaml-cpp-vendor \
+    ros-jazzy-eigen-stl-containers \
+    libgeographiclib-dev \
+    geographiclib-tools \
+    python3-jinja2 \
+    python3-pytest \
+    && rm -rf /var/lib/apt/lists/*
 
-#
-# Build ros-jazzy-ros-gz-bridge from source
-#
+# uavros2's asset descriptors need pydantic >= 2 (Ubuntu 24.04 ships 1.10)
+RUN python3 -m pip install --break-system-packages --no-cache-dir "pydantic>=2" typer
+
+# GeographicLib datasets for MAVROS (geoid, gravity and magnetic models)
+RUN geographiclib-get-geoids egm96-5 && \
+    geographiclib-get-gravity egm96 && \
+    geographiclib-get-magnetic emm2015
+
 USER user
 WORKDIR /home/user
 RUN rosdep update
-RUN mkdir -p /home/user/ros2_ws/src/
-RUN cd /home/user/ros2_ws/src/ && git clone -b jazzy https://github.com/gazebosim/ros_gz.git
-
-# Clone MAVROS for ROS 2 Jazzy
-RUN cd /home/user/ros2_ws/src/ && git clone -b ros2 https://github.com/mavlink/mavros.git
-RUN cd /home/user/ros2_ws/src/ && git clone -b ros2 https://github.com/mavlink/mavlink.git
+RUN echo "source /opt/ros/jazzy/setup.bash" >> /home/user/.bashrc
 
 USER root
-RUN apt-get update && apt-get install -y \
-    gz-harmonic \
-    ros-jazzy-geographic-msgs \
-    ros-jazzy-angles \
-    libgeographic-dev \
-    geographiclib-tools \
-    ros-jazzy-tf2-eigen \
-    ros-jazzy-yaml-cpp-vendor
-
-WORKDIR /home/user/ros2_ws
-ENV GZ_VERSION=harmonic
-RUN rosdep install -r --from-paths src -i -y --rosdistro jazzy
-
-# Install GeographicLib datasets for MAVROS
-USER root
-RUN /opt/ros/jazzy/lib/mavros/install_geographiclib_datasets.sh
-
-WORKDIR /home/user/ros2_ws
-RUN bash -c "source /opt/ros/jazzy/setup.bash && cd /home/user/ros2_ws && export MAKEFLAGS='-j 4' &&  colcon build"
-
-USER root
-RUN echo "source /home/user/ros2_ws/install/setup.bash" >> /home/user/.bashrc
-
-# Install Zenoh middleware
-RUN apt-get update && apt-get install -y ros-jazzy-rmw-zenoh-cpp
-
 # create and start as LOCAL_USER_ID
 COPY scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
