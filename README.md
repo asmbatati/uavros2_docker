@@ -26,13 +26,11 @@ docker run --rm --name uavsim-demo --gpus all -e LOCAL_USER_ID=$(id -u) \
 
 Without `--network host` the container's ROS and Gazebo traffic stays inside
 it; on a shared machine also pass your own `GZ_PARTITION` / `ROS_DOMAIN_ID`
-when you do use host networking. The Ubuntu 22 / Humble, CUDA and WSL
-Dockerfiles below were ported from gps_denied_navigation_docker and have not
-been rebuilt here.
+when you do use host networking. The Ubuntu 22 / Humble, CUDA and WSL images
+were dropped in Nov 2026 (git history has them).
 
 ## 🚀 Features
 
-- **Cross-Platform Compatibility**: Seamless operation on Ubuntu, WSL2, and other Linux distributions
 - **GPU Acceleration**: Automatic NVIDIA GPU detection and configuration
 - **Permission Management**: Robust user/group handling preventing permission issues
 - **Multiple Communication Bridges**: Support for both XRCE-DDS and MAVROS
@@ -55,22 +53,6 @@ sudo apt-get install docker-compose-plugin
 # Add user to docker group
 sudo usermod -aG docker $USER
 newgrp docker
-```
-
-### WSL2
-```bash
-# Install Docker Desktop for Windows with WSL2 backend
-# Or install Docker directly in WSL2:
-curl -fsSL https://get.docker.com -o get-docker.sh
-sudo sh get-docker.sh
-
-# For GPU support in WSL2, install NVIDIA Container Toolkit
-distribution=$(. /etc/os-release;echo $ID$VERSION_ID)
-curl -s -L https://nvidia.github.io/nvidia-docker/gpgkey | sudo apt-key add -
-curl -s -L https://nvidia.github.io/nvidia-docker/$distribution/nvidia-docker.list | sudo tee /etc/apt/sources.list.d/nvidia-docker.list
-
-sudo apt-get update && sudo apt-get install -y nvidia-container-toolkit
-sudo systemctl restart docker
 ```
 
 ## 🏃‍♂️ Quick Start
