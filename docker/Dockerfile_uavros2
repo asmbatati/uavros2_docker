@@ -19,8 +19,8 @@ ARG PX4_REF=v1.15.4
 ARG UAVROS2_REF=main
 ARG UAVROS2_MSGS_REF=main
 
-# MAVROS from the Jazzy binaries (upstream mavlink/mavros, the same source
-# install.sh clones); GeographicLib datasets are already in the base image.
+# MAVROS from the Jazzy binaries, as install.sh does; GeographicLib datasets
+# are already in the base image.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-jazzy-mavros ros-jazzy-mavros-extras ros-jazzy-mavros-msgs \
     && rm -rf /var/lib/apt/lists/*
